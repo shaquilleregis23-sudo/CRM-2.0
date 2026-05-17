@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="theme-color" content="#0d1117" />
+<title>NYC Solar D2D — Queens + Brooklyn</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root { --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3; --muted:#8b949e; --green:#3fb950; --blue:#58a6ff; --yellow:#d29922; --red:#f85149; --accent:#1f6feb; --purple:#a371f7; }
+  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
+  html, body { height:100%; overflow:hidden; }
+  body { font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); }
+  .app { display:grid; grid-template-rows:auto 1fr auto; height:100vh; height:100dvh; }
+  .topbar { background:var(--panel); border-bottom:1px solid var(--border); padding:10px 14px; display:flex; align-items:center; gap:10px; padding-top:max(10px, env(safe-area-inset-top)); }
+  .topbar .title { font-size:14px; font-weight:700; flex:1; }
+  .topbar .stats { display:flex; gap:14px; font-size:11px; }
+  .topbar .stats span { color:var(--muted); }
+  .topbar .stats span b { color:var(--green); font-weight:700; }
+  .topbar .neighborhood-btn { background:var(--purple); color:#fff; border:none; padding:6px 10px; border-radius:14px; font-size:11px; font-weight:700; cursor:pointer; }
+  .main { position:relative; overflow:hidden; }
+  #map { width:100%; height:100%; background:#1c2128; }
+  .fab-row { position:absolute; top:12px; right:12px; z-index:500; display:flex; flex-direction:column; gap:8px; }
+  .fab { width:40px; height:40px; border-radius:20px; background:var(--panel); border:1px solid var(--border); color:var(--text); display:flex; align-items:center; justify-content:center; cursor:pointer; font-size:16px; box-shadow:0 2px 8px rgba(0,0,0,0.3); }
+  .fab.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .fab.loading { background:var(--yellow); border-color:var(--yellow); color:#fff; animation:pulse 1s infinite; }
+  @keyframes pulse { 0%,100% {opacity:1;} 50% {opacity:0.5;} }
+  .filter-bar { position:absolute; top:12px; left:12px; z-index:500; display:flex; gap:6px; flex-wrap:wrap; max-width:calc(100% - 70px); }
+  .chip { font-size:11px; padding:5px 10px; border-radius:12px; background:var(--panel); border:1px solid var(--border); cursor:pointer; color:var(--text); white-space:nowrap; }
+  .chip.active { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .chip .count { opacity:0.6; margin-left:4px; }
+  .sheet { position:absolute; left:0; right:0; bottom:0; background:var(--panel); border-top:1px solid var(--border); border-radius:16px 16px 0 0; transform:translateY(100%); transition:transform .25s ease; z-index:600; max-height:80vh; max-height:80dvh; overflow-y:auto; padding-bottom:max(16px, env(safe-area-inset-bottom)); }
+  .sheet.open { transform:translateY(0); }
+  .sheet-handle { width:40px; height:4px; background:#444c56; border-radius:2px; margin:8px auto 4px; }
+  .sheet-header { padding:8px 16px 12px; display:flex; align-items:flex-start; gap:8px; border-bottom:1px solid var(--border); }
+  .sheet-header .info { flex:1; min-width:0; }
+  .sheet-header h2 { font-size:17px; font-weight:700; }
+  .sheet-header .addr { font-size:12px; color:var(--muted); margin-top:2px; }
+  .sheet-close { background:transparent; border:none; color:var(--muted); font-size:22px; cursor:pointer; line-height:1; padding:4px 8px; }
+  .sheet-body { padding:14px 16px; }
+  .section-title { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px; margin:14px 0 6px; font-weight:600; }
+  .section-title:first-child { margin-top:0; }
+  .field { display:grid; grid-template-columns:120px 1fr; font-size:13px; padding:5px 0; border-bottom:1px solid #21262d; }
+  .field .k { color:var(--muted); }
+  .field .v { color:var(--text); font-weight:500; }
+  .form-row { margin-top:8px; }
+  .form-row label { font-size:11px; color:var(--muted); text-transform:uppercase; font-weight:600; display:block; margin-bottom:4px; }
+  .form-row label .req { color:var(--red); }
+  .form-row input, .form-row textarea, .form-row select { width:100%; background:var(--bg); border:1px solid var(--border); color:var(--text); padding:9px 11px; border-radius:8px; font-size:15px; font-family:inherit; -webkit-appearance:none; }
+  .form-row textarea { resize:vertical; min-height:70px; }
+  .form-grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .disp-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:6px; }
+  .disp-btn { padding:11px 8px; font-size:11px; background:var(--bg); border:1px solid var(--border); border-radius:8px; cursor:pointer; color:var(--text); text-transform:uppercase; font-weight:700; transition:all .12s; text-align:center; }
+  .disp-btn[data-disp="knocked"].selected { background:#3fb95022; border-color:var(--green); color:var(--green); }
+  .disp-btn[data-disp="not_home"].selected { background:#8b949e22; border-color:var(--muted); color:var(--muted); }
+  .disp-btn[data-disp="callback"].selected { background:#d2992222; border-color:var(--yellow); color:var(--yellow); }
+  .disp-btn[data-disp="set"].selected { background:#1f6feb22; border-color:var(--accent); color:var(--blue); }
+  .disp-btn[data-disp="not_interested"].selected { background:#f8514922; border-color:var(--red); color:var(--red); }
+  .disp-btn[data-disp="fresh"].selected { background:#21262d; border-color:var(--muted); color:var(--text); }
+  .save-btn { width:100%; margin-top:14px; padding:12px; background:#238636; color:#fff; border:none; border-radius:8px; font-weight:700; cursor:pointer; font-size:15px; }
+  .save-btn:active { background:#1a6e2a; }
+  .save-btn.danger { background:#da3633; }
+  .save-btn.secondary { background:#21262d; border:1px solid var(--border); color:var(--muted); }
+  .viability { display:inline-block; padding:3px 8px; border-radius:10px; font-size:10px; font-weight:700; text-transform:uppercase; }
+  .v-high { background:#3fb95022; color:var(--green); }
+  .v-med { background:#d2992222; color:var(--yellow); }
+  .v-low { background:#f8514922; color:var(--red); }
+  .bottom-nav { background:var(--panel); border-top:1px solid var(--border); display:flex; padding-bottom:max(0px, env(safe-area-inset-bottom)); }
+  .nav-btn { flex:1; padding:11px; text-align:center; background:transparent; border:none; color:var(--muted); font-size:11px; font-weight:600; cursor:pointer; }
+  .nav-btn.active { color:var(--blue); }
+  .nav-btn .ico { display:block; font-size:18px; margin-bottom:2px; }
+  .list-view, .stats-view { position:absolute; inset:0; background:var(--bg); overflow-y:auto; transform:translateX(100%); transition:transform .2s ease; z-index:400; }
+  .list-view.open, .stats-view.open { transform:translateX(0); }
+  .stats-view { padding:20px; }
+  .lead-item { padding:12px 14px; border-bottom:1px solid var(--border); cursor:pointer; }
+  .lead-item:active { background:var(--panel); }
+  .lead-item .nm { font-size:14px; font-weight:600; }
+  .lead-item .ad { font-size:12px; color:var(--muted); margin-top:2px; }
+  .lead-item .row { display:flex; gap:8px; margin-top:6px; align-items:center; font-size:11px; }
+  .badge { padding:2px 8px; border-radius:10px; font-weight:700; text-transform:uppercase; font-size:9px; }
+  .b-set { background:#1f6feb22; color:var(--blue); } .b-callback { background:#d2992222; color:var(--yellow); } .b-knock { background:#3fb95022; color:var(--green); } .b-not-home { background:#8b949e22; color:var(--muted); } .b-no { background:#f8514922; color:var(--red); } .b-fresh { background:#21262d; color:var(--muted); }
+  .stat-card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:12px; }
+  .stat-card h3 { font-size:12px; color:var(--muted); text-transform:uppercase; font-weight:600; margin-bottom:8px; }
+  .stat-card .big { font-size:28px; font-weight:700; color:var(--green); }
+  .stat-row { display:flex; justify-content:space-between; padding:6px 0; font-size:14px; }
+  .stat-row .l { color:var(--muted); }
+  .leaflet-popup-content-wrapper { background:var(--panel); color:var(--text); border-radius:8px; }
+  .leaflet-popup-content { margin:10px 12px; font-size:12px; }
+  .leaflet-popup-tip { background:var(--panel); }
+  .leaflet-control-attribution { background:rgba(13,17,23,0.7) !important; color:var(--muted) !important; font-size:9px; }
+  .leaflet-control-attribution a { color:var(--blue) !important; }
+  .info-tag { position:absolute; bottom:60px; left:12px; z-index:500; background:rgba(31,111,235,0.15); border:1px solid var(--accent); color:var(--blue); font-size:10px; padding:4px 8px; border-radius:8px; font-weight:600; max-width:calc(100% - 24px); }
+  .info-tag.warn { background:rgba(210,153,34,0.15); border-color:var(--yellow); color:var(--yellow); }
+  .info-tag.err { background:rgba(248,81,73,0.15); border-color:var(--red); color:var(--red); }
+  .info-tag.create { background:rgba(163,113,247,0.15); border-color:var(--purple); color:var(--purple); }
+  .place-cursor { position:absolute; top:50%; left:50%; transform:translate(-50%, -100%); z-index:550; font-size:32px; pointer-events:none; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5)); display:none; }
+  .place-cursor.active { display:block; }
+  .place-actions { position:absolute; bottom:80px; left:50%; transform:translateX(-50%); z-index:550; display:none; gap:8px; }
+  .place-actions.active { display:flex; }
+  .place-actions button { padding:10px 16px; font-size:13px; font-weight:700; border:none; border-radius:20px; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,0.4); }
+  .place-actions .confirm { background:var(--purple); color:#fff; }
+  .place-actions .cancel { background:var(--panel); color:var(--text); border:1px solid var(--border); }
+  .nbh-panel { position:absolute; top:60px; left:12px; right:12px; z-index:550; background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:12px; box-shadow:0 4px 20px rgba(0,0,0,0.5); max-height:60vh; overflow-y:auto; display:none; }
+  .nbh-panel.open { display:block; }
+  .nbh-panel h3 { font-size:13px; margin-bottom:10px; }
+  .nbh-section { font-size:10px; color:var(--muted); text-transform:uppercase; font-weight:700; margin:10px 0 6px; }
+  .nbh-section:first-child { margin-top:0; }
+  .nbh-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:6px; }
+  .nbh-btn { padding:10px 8px; background:var(--bg); border:1px solid var(--border); border-radius:8px; cursor:pointer; color:var(--text); font-size:12px; font-weight:600; text-align:left; }
+  .nbh-btn:active { background:var(--accent); border-color:var(--accent); }
+  .nbh-btn .est { display:block; font-size:9px; color:var(--muted); font-weight:400; margin-top:2px; }
+  .progress-bar { position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); z-index:700; background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:20px; text-align:center; box-shadow:0 4px 20px rgba(0,0,0,0.5); min-width:220px; display:none; }
+  .progress-bar.open { display:block; }
+  .progress-bar .ttl { font-size:13px; font-weight:700; margin-bottom:6px; }
+  .progress-bar .sub { font-size:11px; color:var(--muted); margin-bottom:12px; }
+  .progress-bar .track { background:var(--bg); border-radius:6px; height:8px; overflow:hidden; border:1px solid var(--border); }
+  .progress-bar .fill { background:var(--green); height:100%; transition:width .2s; width:0%; }
+  .progress-bar .cancel-x { margin-top:10px; background:transparent; border:none; color:var(--muted); font-size:11px; cursor:pointer; }
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="topbar">
+    <div class="title">Solar D2D · Q + B</div>
+    <button class="neighborhood-btn" id="open-nbh">📍 Neighborhoods</button>
+    <div class="stats">
+      <span>K <b id="s-knock">0</b></span>
+      <span>S <b id="s-set">0</b></span>
+    </div>
+  </header>
+  <main class="main">
+    <div id="map"></div>
+    <div class="filter-bar" id="filter-bar"></div>
+
+    <div class="nbh-panel" id="nbh-panel">
+      <h3>Bulk-load a neighborhood <span style="float:right;color:var(--muted);cursor:pointer;font-weight:400;" id="close-nbh">×</span></h3>
+      <div class="nbh-section">Queens — high D2D priority</div>
+      <div class="nbh-grid" id="nbh-queens"></div>
+      <div class="nbh-section">Brooklyn — high D2D priority</div>
+      <div class="nbh-grid" id="nbh-brooklyn"></div>
+    </div>
+
+    <div class="progress-bar" id="progress">
+      <div class="ttl" id="prog-ttl">Loading…</div>
+      <div class="sub" id="prog-sub">0 of ?</div>
+      <div class="track"><div class="fill" id="prog-fill"></div></div>
+      <button class="cancel-x" id="prog-cancel">Cancel</button>
+    </div>
+
+    <div class="place-cursor" id="place-cursor">📍</div>
+    <div class="place-actions" id="place-actions">
+      <button class="cancel" id="place-cancel">Cancel</button>
+      <button class="confirm" id="place-confirm">Drop pin here</button>
+    </div>
+    <div class="fab-row">
+      <button class="fab" id="fab-gps" title="Center on me">📍</button>
+      <button class="fab" id="fab-route" title="Toggle route">🥾</button>
+      <button class="fab" id="fab-satellite" title="Toggle satellite">🛰️</button>
+      <button class="fab" id="fab-load" title="Load PLUTO here" style="background:#238636;border-color:#238636;color:#fff;">⬇</button>
+      <button class="fab" id="fab-create" title="Create new lead" style="background:#a371f7;border-color:#a371f7;color:#fff;font-size:22px;">+</button>
+    </div>
+    <div class="info-tag" id="info-tag">Tap 📍 Neighborhoods to bulk-load all owner names for an area.</div>
+    <div class="list-view" id="list-view"><div id="list-container"></div></div>
+    <div class="stats-view" id="stats-view">
+      <div class="stat-card">
+        <h3>Today</h3>
+        <div class="big" id="ts-knock">0</div>
+        <div class="stat-row"><span class="l">Doors knocked</span><span id="ts-knock2">0</span></div>
+        <div class="stat-row"><span class="l">Appts set</span><span id="ts-set">0</span></div>
+        <div class="stat-row"><span class="l">Callbacks</span><span id="ts-cb">0</span></div>
+        <div class="stat-row"><span class="l">Conversion</span><span id="ts-conv">0%</span></div>
+      </div>
+      <div class="stat-card">
+        <h3>All-Time</h3>
+        <div class="stat-row"><span class="l">Total knocked</span><span id="ts-all-knock">0</span></div>
+        <div class="stat-row"><span class="l">Total set</span><span id="ts-all-set">0</span></div>
+        <div class="stat-row"><span class="l">High-V doors</span><span id="ts-viable">0</span></div>
+        <div class="stat-row"><span class="l">Total leads</span><span id="ts-total">0</span></div>
+        <div class="stat-row"><span class="l">Manual leads</span><span id="ts-manual">0</span></div>
+        <div class="stat-row"><span class="l">PLUTO leads</span><span id="ts-pluto">0</span></div>
+      </div>
+      <div class="stat-card">
+        <h3>Data</h3>
+        <div class="stat-row"><span class="l">Storage used</span><span id="ts-storage">—</span></div>
+        <button class="save-btn" id="export-btn" style="background:#1f6feb;">Export to CSV</button>
+        <button class="save-btn secondary" id="reset-btn" style="margin-top:8px;">Reset all data</button>
+      </div>
+    </div>
+  </main>
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-view="map"><span class="ico">🗺️</span>Map</button>
+    <button class="nav-btn" data-view="list"><span class="ico">📋</span>Leads</button>
+    <button class="nav-btn" data-view="stats"><span class="ico">📊</span>Stats</button>
+  </nav>
+</div>
+<div class="sheet" id="sheet">
+  <div class="sheet-handle"></div>
+  <div class="sheet-header">
+    <div class="info"><h2 id="sh-name">—</h2><div class="addr" id="sh-addr">—</div></div>
+    <button class="sheet-close" id="sh-close">×</button>
+  </div>
+  <div class="sheet-body" id="sh-body"></div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ====================================================================
+// NEIGHBORHOOD PRESETS — bounding boxes for one-tap bulk-load
+// [name, [s, w, n, e], approx_est_homes]
+// ====================================================================
+const NEIGHBORHOODS = {
+  queens: [
+    ['Astoria',         [40.760, -73.940, 40.785, -73.900], '~6K'],
+    ['Long Island City',[40.738, -73.960, 40.760, -73.925], '~3K'],
+    ['Sunnyside / Woodside', [40.740, -73.925, 40.760, -73.890], '~7K'],
+    ['Jackson Heights', [40.745, -73.895, 40.762, -73.870], '~5K'],
+    ['Elmhurst / Corona',[40.730, -73.880, 40.755, -73.845], '~9K'],
+    ['Flushing',        [40.745, -73.840, 40.785, -73.795], '~12K'],
+    ['Bayside / Whitestone', [40.760, -73.800, 40.795, -73.745], '~14K'],
+    ['Forest Hills / Rego Park', [40.715, -73.860, 40.735, -73.830], '~6K'],
+    ['Maspeth / Middle Village', [40.710, -73.910, 40.735, -73.870], '~9K'],
+    ['Ridgewood',       [40.695, -73.910, 40.715, -73.880], '~7K'],
+    ['Jamaica / Hollis',[40.690, -73.810, 40.720, -73.760], '~16K'],
+    ['Howard Beach',    [40.650, -73.860, 40.675, -73.825], '~5K'],
+    ['Ozone Park',      [40.670, -73.860, 40.695, -73.830], '~8K'],
+    ['Rockaway',        [40.560, -73.860, 40.610, -73.730], '~10K'],
+  ],
+  brooklyn: [
+    ['Bay Ridge',       [40.615, -74.040, 40.640, -74.015], '~6K'],
+    ['Bensonhurst',     [40.595, -74.015, 40.625, -73.975], '~10K'],
+    ['Dyker Heights',   [40.605, -74.020, 40.625, -73.995], '~5K'],
+    ['Borough Park',    [40.625, -73.990, 40.645, -73.965], '~8K'],
+    ['Park Slope',      [40.660, -73.990, 40.685, -73.965], '~5K'],
+    ['Marine Park / Mill Basin', [40.595, -73.945, 40.625, -73.900], '~11K'],
+    ['Sheepshead Bay',  [40.580, -73.965, 40.605, -73.925], '~7K'],
+    ['Brighton Beach',  [40.572, -73.975, 40.590, -73.945], '~4K'],
+    ['Canarsie',        [40.620, -73.910, 40.650, -73.870], '~9K'],
+    ['Flatlands',       [40.620, -73.945, 40.640, -73.910], '~6K'],
+    ['Midwood',         [40.610, -73.975, 40.635, -73.950], '~7K'],
+    ['East New York',   [40.660, -73.910, 40.685, -73.870], '~10K'],
+    ['Bedford-Stuyvesant',[40.680, -73.960, 40.700, -73.920], '~12K'],
+    ['Crown Heights',   [40.665, -73.960, 40.685, -73.920], '~9K'],
+    ['Flatbush',        [40.635, -73.975, 40.660, -73.935], '~10K'],
+    ['Bushwick',        [40.685, -73.930, 40.710, -73.895], '~8K'],
+  ]
+};
+
+// ====================================================================
+// STATE
+// ====================================================================
+const STORAGE_KEY = 'nyc_solar_crm_v3';
+let state = loadState();
+let placingMode = false, createMode = false, currentLeadId = null;
+let loadCancelled = false;
+
+function loadState() {
+  try { const raw = localStorage.getItem(STORAGE_KEY); if (raw) return JSON.parse(raw); } catch(e) {}
+  return { leads: [], filter: 'all', show_route: true, satellite: false };
+}
+function saveState() {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+  catch (e) { showInfo('Storage full — export CSV and reset.', 'err'); }
+}
+
+// ====================================================================
+// MAP
+// ====================================================================
+const map = L.map('map', { zoomControl:false }).setView([40.6815, -73.9301], 12);
+const darkTiles = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { attribution:'© OpenStreetMap © CARTO', maxZoom:19, subdomains:'abcd' });
+const satelliteTiles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', { attribution:'© Esri', maxZoom:19 });
+const satelliteLabels = L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager_only_labels/{z}/{x}/{y}{r}.png', { attribution:'', maxZoom:19, subdomains:'abcd', opacity:0.9 });
+if (state.satellite) { satelliteTiles.addTo(map); satelliteLabels.addTo(map); } else { darkTiles.addTo(map); }
+L.control.zoom({ position:'bottomright' }).addTo(map);
+
+const COLORS = { fresh:'#444c56', knocked:'#3fb950', not_home:'#8b949e', callback:'#d29922', set:'#1f6feb', not_interested:'#f85149' };
+const STATUS_LABELS = { fresh:'Fresh', knocked:'Knocked', not_home:'Not Home', callback:'Callback', set:'Set', not_interested:'Not Int.' };
+const STATUS_BADGE = { fresh:'b-fresh', knocked:'b-knock', not_home:'b-not-home', callback:'b-callback', set:'b-set', not_interested:'b-no' };
+
+const markers = {};
+function renderMarkers() {
+  Object.values(markers).forEach(m => map.removeLayer(m));
+  Object.keys(markers).forEach(k => delete markers[k]);
+  const filtered = filterLeads(state.leads);
+  // Cap markers at 5000 to keep mobile responsive
+  const slice = filtered.slice(0, 5000);
+  slice.forEach(lead => {
+    const color = COLORS[lead.status] || COLORS.fresh;
+    const ring = lead.viability === 'high' ? `box-shadow:0 0 0 2px ${color}33, 0 2px 6px rgba(0,0,0,0.5);` : `box-shadow:0 2px 6px rgba(0,0,0,0.5);`;
+    const size = state.satellite ? 14 : 16;
+    const star = lead.source === 'manual' ? `<div style="position:absolute;top:-4px;right:-4px;width:8px;height:8px;background:#a371f7;border-radius:50%;border:1px solid #fff;"></div>` : '';
+    const icon = L.divIcon({ className:'', html:`<div style="position:relative;width:${size}px;height:${size}px;border-radius:50%;background:${color};border:2px solid #fff;${ring}">${star}</div>`, iconSize:[size, size], iconAnchor:[size/2, size/2] });
+    const m = L.marker([lead.lat, lead.lng], { icon }).addTo(map);
+    m.on('click', () => openLead(lead.id));
+    markers[lead.id] = m;
+  });
+  if (filtered.length > 5000) showInfo(`Showing 5K of ${filtered.length} pins (perf cap). Filter to narrow.`, 'warn');
+}
+
+function filterLeads(leads) {
+  if (state.filter === 'all') return leads;
+  if (state.filter === 'high_viability') return leads.filter(l => l.viability === 'high');
+  if (state.filter === 'manual') return leads.filter(l => l.source === 'manual');
+  return leads.filter(l => l.status === state.filter);
+}
+function renderFilterBar() {
+  const bar = document.getElementById('filter-bar');
+  const counts = state.leads.reduce((acc, l) => { acc.all++; acc[l.status] = (acc[l.status] || 0) + 1; if (l.viability === 'high') acc.high_viability++; if (l.source === 'manual') acc.manual++; return acc; }, { all:0, high_viability:0, manual:0 });
+  const filters = [{ key:'all', label:'All' }, { key:'high_viability', label:'⭐' }, { key:'manual', label:'+' }, { key:'fresh', label:'Fresh' }, { key:'knocked', label:'Knock' }, { key:'callback', label:'CB' }, { key:'set', label:'Set' }];
+  bar.innerHTML = filters.map(f => `<div class="chip ${state.filter === f.key ? 'active' : ''}" data-filter="${f.key}">${f.label}<span class="count">${counts[f.key] || 0}</span></div>`).join('');
+  bar.querySelectorAll('.chip').forEach(c => { c.addEventListener('click', () => { state.filter = c.dataset.filter; saveState(); renderFilterBar(); renderMarkers(); renderList(); }); });
+}
+
+// ====================================================================
+// LEAD DETAIL
+// ====================================================================
+function openLead(id) {
+  const lead = state.leads.find(l => l.id === id);
+  if (!lead) return;
+  currentLeadId = id; createMode = false;
+  document.getElementById('sh-name').textContent = `${lead.first} ${lead.last}`;
+  document.getElementById('sh-addr').textContent = `${lead.addr}, ${lead.city || lead.boro} ${lead.zip || ''}`;
+  const vClass = lead.viability === 'high' ? 'v-high' : lead.viability === 'med' ? 'v-med' : 'v-low';
+  const vLabel = lead.viability === 'high' ? 'High viability' : lead.viability === 'med' ? 'Medium' : 'Low';
+  const bldgLabel = lead.bldg_class && lead.bldg_class.startsWith('A') ? `1-family (${lead.bldg_class})` : lead.bldg_class && lead.bldg_class.startsWith('B') ? `2-family (${lead.bldg_class})` : lead.bldg_class || '—';
+  const sourceLabel = lead.source === 'manual' ? ' <span style="font-size:10px;color:#a371f7;margin-left:6px;">manual</span>' : lead.source === 'pluto' ? ' <span style="font-size:10px;color:var(--muted);margin-left:6px;">PLUTO 25v4</span>' : '';
+  document.getElementById('sh-body').innerHTML = `
+    <div style="margin-bottom:10px;"><span class="viability ${vClass}">${vLabel}</span>${sourceLabel}</div>
+    <div class="section-title">Property</div>
+    <div class="field"><div class="k">Building</div><div class="v">${bldgLabel}${lead.units ? ' · ' + lead.units + ' unit' + (lead.units > 1 ? 's' : '') : ''}</div></div>
+    ${lead.year_built ? `<div class="field"><div class="k">Year built</div><div class="v">${lead.year_built}</div></div>` : ''}
+    ${lead.lot_sqft ? `<div class="field"><div class="k">Lot</div><div class="v">${lead.lot_sqft.toLocaleString()} sqft</div></div>` : ''}
+    ${lead.est_value ? `<div class="field"><div class="k">Assessed</div><div class="v">$${lead.est_value.toLocaleString()}</div></div>` : ''}
+    ${lead.bbl ? `<div class="field"><div class="k">BBL</div><div class="v" style="font-family:monospace;font-size:11px;">${lead.bbl}</div></div>` : ''}
+    <div class="section-title">Qualification</div>
+    <div class="form-row"><label>Monthly bill</label><input type="number" id="f-bill" inputmode="numeric" placeholder="$" value="${lead.monthly_bill || ''}" /></div>
+    <div class="form-row"><label>Credit</label><select id="f-credit"><option value="unknown" ${lead.credit==='unknown'?'selected':''}>Unknown</option><option value="720+" ${lead.credit==='720+'?'selected':''}>720+</option><option value="680-720" ${lead.credit==='680-720'?'selected':''}>680-720</option><option value="640-680" ${lead.credit==='640-680'?'selected':''}>640-680</option><option value="below 640" ${lead.credit==='below 640'?'selected':''}>Below 640</option></select></div>
+    <div class="form-row"><label>Phone</label><input type="tel" id="f-phone" placeholder="(xxx) xxx-xxxx" value="${lead.phone || ''}" /></div>
+    <div class="form-row"><label>Roof notes</label><input type="text" id="f-roof" value="${lead.roof_notes || ''}" /></div>
+    <div class="section-title">Disposition</div>
+    <div class="disp-grid">
+      <button class="disp-btn ${lead.status==='knocked'?'selected':''}" data-disp="knocked">Knocked</button>
+      <button class="disp-btn ${lead.status==='not_home'?'selected':''}" data-disp="not_home">Not Home</button>
+      <button class="disp-btn ${lead.status==='callback'?'selected':''}" data-disp="callback">Callback</button>
+      <button class="disp-btn ${lead.status==='set'?'selected':''}" data-disp="set">Appt Set</button>
+      <button class="disp-btn ${lead.status==='not_interested'?'selected':''}" data-disp="not_interested" style="grid-column:span 2;">Not Interested</button>
+    </div>
+    <div class="section-title">Notes</div>
+    <div class="form-row"><textarea id="f-notes">${lead.notes || ''}</textarea></div>
+    <button class="save-btn" id="save-lead">Save Lead</button>
+    ${lead.source === 'manual' ? '<button class="save-btn danger" id="delete-lead" style="margin-top:8px;">Delete</button>' : ''}
+  `;
+  document.querySelectorAll('.disp-btn').forEach(btn => btn.addEventListener('click', () => { document.querySelectorAll('.disp-btn').forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); }));
+  document.getElementById('save-lead').addEventListener('click', saveLead);
+  if (lead.source === 'manual') document.getElementById('delete-lead').addEventListener('click', () => { if (confirm('Delete this lead?')) { state.leads = state.leads.filter(l => l.id !== lead.id); saveState(); closeSheet(); renderMarkers(); renderFilterBar(); renderList(); renderTopStats(); renderStats(); } });
+  document.getElementById('sheet').classList.add('open');
+}
+
+function openCreateLead(latlng) {
+  createMode = true; currentLeadId = null;
+  const center = latlng || map.getCenter();
+  document.getElementById('sh-name').textContent = 'New Lead';
+  document.getElementById('sh-addr').textContent = `${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}`;
+  document.getElementById('sh-body').innerHTML = `
+    <input type="hidden" id="f-lat" value="${center.lat}" />
+    <input type="hidden" id="f-lng" value="${center.lng}" />
+    <div class="section-title">Homeowner</div>
+    <div class="form-grid-2">
+      <div class="form-row"><label>First <span class="req">*</span></label><input type="text" id="f-first" autocapitalize="words" /></div>
+      <div class="form-row"><label>Last <span class="req">*</span></label><input type="text" id="f-last" autocapitalize="words" /></div>
+    </div>
+    <div class="form-row"><label>Phone</label><input type="tel" id="f-phone" /></div>
+    <div class="section-title">Address</div>
+    <div class="form-row"><label>Street <span class="req">*</span></label><input type="text" id="f-addr" autocapitalize="words" /></div>
+    <div class="form-grid-2">
+      <div class="form-row"><label>Borough</label><select id="f-boro"><option value="Brooklyn">Brooklyn</option><option value="Queens">Queens</option></select></div>
+      <div class="form-row"><label>Zip</label><input type="text" id="f-zip" inputmode="numeric" maxlength="5" /></div>
+    </div>
+    <div class="section-title">Property</div>
+    <div class="form-grid-2">
+      <div class="form-row"><label>Building</label><select id="f-bldg"><option value="A1">1-family (A1)</option><option value="A5">1-family attached (A5)</option><option value="B1">2-family brick (B1)</option><option value="B3">2-family frame (B3)</option><option value="">Other</option></select></div>
+      <div class="form-row"><label>Year built</label><input type="number" id="f-year" inputmode="numeric" /></div>
+    </div>
+    <div class="section-title">Qualification</div>
+    <div class="form-row"><label>Monthly bill</label><input type="number" id="f-bill" inputmode="numeric" /></div>
+    <div class="form-row"><label>Credit</label><select id="f-credit"><option value="unknown">Unknown</option><option value="720+">720+</option><option value="680-720">680-720</option><option value="640-680">640-680</option><option value="below 640">Below 640</option></select></div>
+    <div class="form-row"><label>Roof notes</label><input type="text" id="f-roof" /></div>
+    <div class="section-title">Initial disposition</div>
+    <div class="disp-grid">
+      <button class="disp-btn selected" data-disp="fresh" style="grid-column:span 2;">Fresh</button>
+      <button class="disp-btn" data-disp="knocked">Knocked</button>
+      <button class="disp-btn" data-disp="not_home">Not Home</button>
+      <button class="disp-btn" data-disp="callback">Callback</button>
+      <button class="disp-btn" data-disp="set">Appt Set</button>
+    </div>
+    <div class="section-title">Notes</div>
+    <div class="form-row"><textarea id="f-notes"></textarea></div>
+    <button class="save-btn" id="create-lead-btn">Create Lead</button>
+    <button class="save-btn secondary" id="cancel-create-btn" style="margin-top:8px;">Cancel</button>
+  `;
+  document.querySelectorAll('.disp-btn').forEach(btn => btn.addEventListener('click', () => { document.querySelectorAll('.disp-btn').forEach(b => b.classList.remove('selected')); btn.classList.add('selected'); }));
+  document.getElementById('create-lead-btn').addEventListener('click', createLead);
+  document.getElementById('cancel-create-btn').addEventListener('click', closeSheet);
+  document.getElementById('sheet').classList.add('open');
+  setTimeout(() => document.getElementById('f-first').focus(), 300);
+}
+
+function createLead() {
+  const first = document.getElementById('f-first').value.trim();
+  const last = document.getElementById('f-last').value.trim();
+  const addr = document.getElementById('f-addr').value.trim();
+  if (!first || !last || !addr) { alert('First, Last, and Address are required.'); return; }
+  const bldg = document.getElementById('f-bldg').value;
+  const year = parseInt(document.getElementById('f-year').value) || null;
+  const viability = (bldg.startsWith('A') && year && year >= 1945) ? 'high' : (bldg.startsWith('A') || bldg.startsWith('B')) ? 'med' : 'low';
+  const sel = document.querySelector('.disp-btn.selected');
+  const lead = {
+    id: 'm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+    bbl:null, source:'manual', first, last, addr,
+    boro:document.getElementById('f-boro').value, city:document.getElementById('f-boro').value,
+    zip:document.getElementById('f-zip').value.trim(),
+    lat:parseFloat(document.getElementById('f-lat').value),
+    lng:parseFloat(document.getElementById('f-lng').value),
+    bldg_class:bldg, units:bldg.startsWith('B') ? 2 : 1, year_built:year,
+    lot_sqft:null, est_value:null, viability, owner_at_property:true,
+    status: sel ? sel.dataset.disp : 'fresh',
+    monthly_bill:document.getElementById('f-bill').value,
+    credit:document.getElementById('f-credit').value,
+    phone:document.getElementById('f-phone').value,
+    roof_notes:document.getElementById('f-roof').value,
+    notes:document.getElementById('f-notes').value,
+    updated_at:new Date().toISOString()
+  };
+  state.leads.push(lead); saveState(); closeSheet();
+  renderMarkers(); renderFilterBar(); renderList(); renderTopStats(); renderStats();
+  map.setView([lead.lat, lead.lng], Math.max(map.getZoom(), 17));
+  showInfo(`✓ Added ${first} ${last}`, 'create'); setTimeout(hideInfo, 3000);
+}
+
+function closeSheet() { document.getElementById('sheet').classList.remove('open'); currentLeadId = null; createMode = false; }
+function saveLead() {
+  if (!currentLeadId) return;
+  const lead = state.leads.find(l => l.id === currentLeadId);
+  if (!lead) return;
+  const sel = document.querySelector('.disp-btn.selected');
+  lead.status = sel ? sel.dataset.disp : lead.status;
+  lead.monthly_bill = document.getElementById('f-bill').value;
+  lead.credit = document.getElementById('f-credit').value;
+  lead.phone = document.getElementById('f-phone').value;
+  lead.roof_notes = document.getElementById('f-roof').value;
+  lead.notes = document.getElementById('f-notes').value;
+  lead.updated_at = new Date().toISOString();
+  saveState(); closeSheet(); renderMarkers(); renderList(); renderFilterBar(); renderTopStats(); renderStats();
+}
+document.getElementById('sh-close').addEventListener('click', closeSheet);
+
+// ====================================================================
+// PLACING MODE
+// ====================================================================
+function enterPlacingMode() {
+  placingMode = true;
+  document.getElementById('place-cursor').classList.add('active');
+  document.getElementById('place-actions').classList.add('active');
+  showInfo('Pan the map so 📍 is on the door, then tap "Drop pin here".', 'create');
+  document.getElementById('fab-create').classList.add('active');
+}
+function exitPlacingMode() {
+  placingMode = false;
+  document.getElementById('place-cursor').classList.remove('active');
+  document.getElementById('place-actions').classList.remove('active');
+  hideInfo(); document.getElementById('fab-create').classList.remove('active');
+}
+document.getElementById('fab-create').addEventListener('click', () => { if (placingMode) exitPlacingMode(); else enterPlacingMode(); });
+document.getElementById('place-confirm').addEventListener('click', () => { const c = map.getCenter(); exitPlacingMode(); openCreateLead(c); });
+document.getElementById('place-cancel').addEventListener('click', exitPlacingMode);
+
+// ====================================================================
+// LIST + STATS
+// ====================================================================
+function renderList() {
+  const container = document.getElementById('list-container');
+  const filtered = filterLeads(state.leads).slice().sort((a, b) => { const order = { set:0, callback:1, knocked:2, not_home:3, fresh:4, not_interested:5 }; return (order[a.status] ?? 9) - (order[b.status] ?? 9); });
+  if (filtered.length === 0) { container.innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);">No leads yet. Tap 📍 Neighborhoods to bulk-load.</div>'; return; }
+  const display = filtered.slice(0, 500);
+  let html = display.map(l => `<div class="lead-item" data-id="${l.id}"><div class="nm">${l.first} ${l.last}${l.source === 'manual' ? ' <span style="color:#a371f7;font-size:10px;">+</span>' : ''}</div><div class="ad">${l.addr}${l.city ? ' · ' + l.city : ''}</div><div class="row"><span class="badge ${STATUS_BADGE[l.status]}">${STATUS_LABELS[l.status]}</span>${l.viability === 'high' ? '<span style="color:var(--green);font-size:10px;">⭐</span>' : ''}${l.monthly_bill ? `<span style="color:var(--muted);">$${l.monthly_bill}/mo</span>` : ''}</div></div>`).join('');
+  if (filtered.length > 500) html += `<div style="padding:14px;text-align:center;color:var(--muted);font-size:11px;">Showing 500 of ${filtered.length} — filter to narrow.</div>`;
+  container.innerHTML = html;
+  container.querySelectorAll('.lead-item').forEach(item => item.addEventListener('click', () => { const lead = state.leads.find(l => l.id === item.dataset.id); if (!lead) return; switchView('map'); map.setView([lead.lat, lead.lng], 18); setTimeout(() => openLead(lead.id), 250); }));
+}
+function renderTopStats() {
+  const today = todayLeads();
+  document.getElementById('s-knock').textContent = today.filter(l => ['knocked','not_home','callback','set','not_interested'].includes(l.status)).length;
+  document.getElementById('s-set').textContent = today.filter(l => l.status === 'set').length;
+}
+function todayLeads() { const today = new Date().toDateString(); return state.leads.filter(l => l.updated_at && new Date(l.updated_at).toDateString() === today); }
+function renderStats() {
+  const today = todayLeads();
+  const knocks = today.filter(l => ['knocked','not_home','callback','set','not_interested'].includes(l.status)).length;
+  const sets = today.filter(l => l.status === 'set').length;
+  const cbs = today.filter(l => l.status === 'callback').length;
+  document.getElementById('ts-knock').textContent = knocks; document.getElementById('ts-knock2').textContent = knocks;
+  document.getElementById('ts-set').textContent = sets; document.getElementById('ts-cb').textContent = cbs;
+  document.getElementById('ts-conv').textContent = knocks ? `${Math.round(sets/knocks*100)}%` : '0%';
+  document.getElementById('ts-all-knock').textContent = state.leads.filter(l => ['knocked','not_home','callback','set','not_interested'].includes(l.status)).length;
+  document.getElementById('ts-all-set').textContent = state.leads.filter(l => l.status === 'set').length;
+  document.getElementById('ts-viable').textContent = state.leads.filter(l => l.viability === 'high').length;
+  document.getElementById('ts-total').textContent = state.leads.length;
+  document.getElementById('ts-manual').textContent = state.leads.filter(l => l.source === 'manual').length;
+  document.getElementById('ts-pluto').textContent = state.leads.filter(l => l.source === 'pluto').length;
+  const bytes = new Blob([JSON.stringify(state)]).size;
+  document.getElementById('ts-storage').textContent = `${(bytes/1024/1024).toFixed(2)} MB`;
+}
+document.getElementById('export-btn').addEventListener('click', () => {
+  const headers = ['first','last','addr','city','boro','zip','bbl','status','monthly_bill','credit','phone','roof_notes','notes','viability','est_value','year_built','bldg_class','source','updated_at'];
+  const rows = state.leads.map(l => headers.map(h => { const v = l[h] ?? ''; return `"${String(v).replace(/"/g,'""')}"`; }).join(','));
+  const csv = headers.join(',') + '\n' + rows.join('\n');
+  const blob = new Blob([csv], { type:'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = `solar-leads-${new Date().toISOString().slice(0,10)}.csv`; a.click();
+  URL.revokeObjectURL(url);
+});
+document.getElementById('reset-btn').addEventListener('click', () => { if (confirm('Wipe ALL data?')) { localStorage.removeItem(STORAGE_KEY); location.reload(); } });
+
+// ====================================================================
+// GPS / ROUTE / SATELLITE
+// ====================================================================
+let myLocationMarker = null, routePolyline = null;
+let routePoints = JSON.parse(localStorage.getItem('nyc_solar_route_' + new Date().toDateString()) || '[]');
+function updateRoute() {
+  if (routePolyline) map.removeLayer(routePolyline);
+  if (state.show_route && routePoints.length > 1) routePolyline = L.polyline(routePoints, { color:'#3fb950', weight:3, opacity:0.7, dashArray:'4,6' }).addTo(map);
+}
+document.getElementById('fab-gps').addEventListener('click', () => {
+  if (!navigator.geolocation) return alert('GPS not available.');
+  navigator.geolocation.getCurrentPosition(pos => {
+    const { latitude, longitude } = pos.coords;
+    map.setView([latitude, longitude], 18); placeMyLocation(latitude, longitude);
+    routePoints.push([latitude, longitude]); localStorage.setItem('nyc_solar_route_' + new Date().toDateString(), JSON.stringify(routePoints)); updateRoute();
+  }, err => alert('GPS error: ' + err.message), { enableHighAccuracy:true, timeout:10000 });
+});
+function placeMyLocation(lat, lng) {
+  if (myLocationMarker) map.removeLayer(myLocationMarker);
+  myLocationMarker = L.marker([lat, lng], { icon: L.divIcon({ className:'', html:`<div style="width:16px;height:16px;border-radius:50%;background:#58a6ff;border:3px solid #fff;box-shadow:0 0 0 6px rgba(88,166,255,0.3);"></div>`, iconSize:[16,16], iconAnchor:[8,8] }) }).addTo(map);
+}
+document.getElementById('fab-route').addEventListener('click', () => { state.show_route = !state.show_route; saveState(); document.getElementById('fab-route').classList.toggle('active', state.show_route); updateRoute(); });
+if (state.show_route) document.getElementById('fab-route').classList.add('active');
+if (navigator.geolocation) navigator.geolocation.watchPosition(pos => {
+  const { latitude, longitude } = pos.coords;
+  if (myLocationMarker) myLocationMarker.setLatLng([latitude, longitude]); else placeMyLocation(latitude, longitude);
+  const last = routePoints[routePoints.length - 1];
+  if (!last || Math.hypot(last[0]-latitude, last[1]-longitude) > 0.0001) {
+    routePoints.push([latitude, longitude]);
+    if (routePoints.length > 500) routePoints.shift();
+    localStorage.setItem('nyc_solar_route_' + new Date().toDateString(), JSON.stringify(routePoints)); updateRoute();
+  }
+}, () => {}, { enableHighAccuracy:true, maximumAge:15000 });
+
+document.getElementById('fab-satellite').addEventListener('click', () => {
+  state.satellite = !state.satellite; saveState();
+  if (state.satellite) { map.removeLayer(darkTiles); satelliteTiles.addTo(map); satelliteLabels.addTo(map); document.getElementById('fab-satellite').classList.add('active'); }
+  else { map.removeLayer(satelliteTiles); map.removeLayer(satelliteLabels); darkTiles.addTo(map); document.getElementById('fab-satellite').classList.remove('active'); }
+  renderMarkers();
+});
+if (state.satellite) document.getElementById('fab-satellite').classList.add('active');
+
+// ====================================================================
+// PLUTO LOADER — viewport + neighborhood bulk
+// ====================================================================
+const PLUTO_ENDPOINT = 'https://data.cityofnewyork.us/resource/64uk-42ks.json';
+const PAGE_SIZE = 50000;
+
+function showInfo(msg, kind) { const el = document.getElementById('info-tag'); el.textContent = msg; el.className = 'info-tag' + (kind ? ' ' + kind : ''); el.style.display = 'block'; }
+function hideInfo() { document.getElementById('info-tag').style.display = 'none'; }
+function parseOwnerName(raw) {
+  if (!raw) return null;
+  const upper = raw.toUpperCase().trim();
+  const skip = ['LLC','L.L.C','CORP','INC',' CO ','TRUST','ESTATE','REALTY','HOUSING','AUTHORITY','NYC','CITY OF','BANK','NATIONAL','PROPERTIES','ASSOCIATES','LTD','LP ','PARTNERS','GROUP','INVESTORS','HOLDINGS','MANAGEMENT','DEPT','BOARD','TENANTS','OWNERS','CO-OP','COOP','CONDO'];
+  if (skip.some(t => upper.includes(t))) return null;
+  let clean = upper.split('&')[0].trim();
+  clean = clean.replace(/\b(JR|SR|II|III|IV|MD|PHD|ESQ)\.?$/g, '').trim();
+  const parts = clean.split(/\s+/).filter(p => p.length > 0);
+  if (parts.length < 2) return null;
+  const last = titleCase(parts[0]); const first = titleCase(parts[1]);
+  if (!/^[A-Za-z\-' ]+$/.test(last) || !/^[A-Za-z\-' ]+$/.test(first)) return null;
+  if (last.length < 2 || first.length < 2) return null;
+  return { first, last };
+}
+function titleCase(s) { return s.split(/[\s-]/).map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase()).join(' '); }
+function viabilityFromPluto(p) { const yb = parseInt(p.yearbuilt) || 0; const bc = p.bldgclass || ''; if (bc.startsWith('A') && yb >= 1945) return 'high'; if (bc.startsWith('A') || bc.startsWith('B')) return 'med'; return 'low'; }
+
+function plutoToLead(p) {
+  const parsed = parseOwnerName(p.ownername);
+  if (!parsed) return null;
+  return {
+    id: 'p_' + (p.bbl || (p.latitude + '_' + p.longitude)),
+    bbl: p.bbl || null, first: parsed.first, last: parsed.last,
+    addr: titleCase(p.address || ''), city:'',
+    boro: p.borough === 'BK' ? 'Brooklyn' : p.borough === 'QN' ? 'Queens' : p.borough,
+    zip: p.zipcode || '', lat: parseFloat(p.latitude), lng: parseFloat(p.longitude),
+    bldg_class: p.bldgclass || '', units: parseInt(p.unitsres) || 1,
+    year_built: parseInt(p.yearbuilt) || null, lot_sqft: parseInt(p.lotarea) || null,
+    est_value: parseInt(p.assesstot) || null, viability: viabilityFromPluto(p),
+    owner_at_property: true, source: 'pluto', status: 'fresh',
+    monthly_bill:'', credit:'unknown', phone:'', roof_notes:'', notes:'', updated_at:null
+  };
+}
+
+async function loadPlutoArea(s, w, n, e, areaName) {
+  loadCancelled = false;
+  const progress = document.getElementById('progress');
+  const ttl = document.getElementById('prog-ttl');
+  const sub = document.getElementById('prog-sub');
+  const fill = document.getElementById('prog-fill');
+  ttl.textContent = `Loading ${areaName}…`;
+  sub.textContent = 'Fetching from PLUTO API';
+  fill.style.width = '0%';
+  progress.classList.add('open');
+
+  let offset = 0, totalAdded = 0, totalSkipped = 0, page = 0;
+  const existingBbls = new Set(state.leads.filter(l => l.bbl).map(l => l.bbl));
+
+  try {
+    while (!loadCancelled) {
+      page++;
+      const where = [`latitude > ${s}`, `latitude < ${n}`, `longitude > ${w}`, `longitude < ${e}`, `(borough='BK' OR borough='QN')`, `(starts_with(bldgclass, 'A') OR starts_with(bldgclass, 'B'))`, `ownername IS NOT NULL`].join(' AND ');
+      const url = `${PLUTO_ENDPOINT}?$where=${encodeURIComponent(where)}&$limit=${PAGE_SIZE}&$offset=${offset}&$select=bbl,address,borough,bldgclass,ownername,yearbuilt,lotarea,assesstot,unitsres,zipcode,latitude,longitude`;
+      sub.textContent = `Page ${page} · ${totalAdded} added so far`;
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data = await resp.json();
+      if (data.length === 0) break;
+
+      data.forEach(p => {
+        if (loadCancelled) return;
+        if (!p.latitude || !p.longitude || !p.address || !p.ownername) { totalSkipped++; return; }
+        if (p.bbl && existingBbls.has(p.bbl)) { totalSkipped++; return; }
+        const lead = plutoToLead(p);
+        if (!lead) { totalSkipped++; return; }
+        state.leads.push(lead);
+        if (p.bbl) existingBbls.add(p.bbl);
+        totalAdded++;
+      });
+
+      fill.style.width = Math.min(100, (data.length / PAGE_SIZE) * 100) + '%';
+      sub.textContent = `Page ${page} done · ${totalAdded} loaded, ${totalSkipped} filtered`;
+      if (data.length < PAGE_SIZE) break;
+      offset += PAGE_SIZE;
+    }
+
+    saveState();
+    renderMarkers(); renderFilterBar(); renderTopStats(); renderStats();
+
+    if (loadCancelled) showInfo(`Cancelled. Loaded ${totalAdded} homes.`, 'warn');
+    else showInfo(`✓ ${areaName}: ${totalAdded} homes loaded (${totalSkipped} skipped — LLCs/dupes).`);
+    setTimeout(hideInfo, 6000);
+  } catch (err) {
+    showInfo(`Load failed: ${err.message}`, 'err');
+  } finally {
+    progress.classList.remove('open');
+  }
+}
+
+document.getElementById('prog-cancel').addEventListener('click', () => { loadCancelled = true; });
+
+// Viewport-based load (⬇ FAB)
+document.getElementById('fab-load').addEventListener('click', async () => {
+  const b = map.getBounds(); const zoom = map.getZoom();
+  if (zoom < 14) { showInfo('Zoom in (neighborhood-level) before loading.', 'warn'); return; }
+  const btn = document.getElementById('fab-load');
+  btn.classList.add('loading'); btn.textContent = '…';
+  await loadPlutoArea(b.getSouth(), b.getWest(), b.getNorth(), b.getEast(), 'this area');
+  btn.classList.remove('loading'); btn.textContent = '⬇';
+});
+
+// ====================================================================
+// NEIGHBORHOOD PANEL — bulk pre-load
+// ====================================================================
+function renderNeighborhoods() {
+  const q = document.getElementById('nbh-queens');
+  const b = document.getElementById('nbh-brooklyn');
+  q.innerHTML = NEIGHBORHOODS.queens.map((n, i) => `<button class="nbh-btn" data-bo="queens" data-i="${i}">${n[0]}<span class="est">${n[2]} homes</span></button>`).join('');
+  b.innerHTML = NEIGHBORHOODS.brooklyn.map((n, i) => `<button class="nbh-btn" data-bo="brooklyn" data-i="${i}">${n[0]}<span class="est">${n[2]} homes</span></button>`).join('');
+  document.querySelectorAll('.nbh-btn').forEach(btn => btn.addEventListener('click', async () => {
+    const bo = btn.dataset.bo; const i = parseInt(btn.dataset.i);
+    const [name, bounds] = NEIGHBORHOODS[bo][i];
+    document.getElementById('nbh-panel').classList.remove('open');
+    map.fitBounds([[bounds[0], bounds[1]], [bounds[2], bounds[3]]]);
+    await loadPlutoArea(bounds[0], bounds[1], bounds[2], bounds[3], name);
+  }));
+}
+document.getElementById('open-nbh').addEventListener('click', () => document.getElementById('nbh-panel').classList.toggle('open'));
+document.getElementById('close-nbh').addEventListener('click', () => document.getElementById('nbh-panel').classList.remove('open'));
+
+// ====================================================================
+// VIEW SWITCHER + INIT
+// ====================================================================
+function switchView(view) {
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+  document.getElementById('list-view').classList.toggle('open', view === 'list');
+  document.getElementById('stats-view').classList.toggle('open', view === 'stats');
+  if (view === 'list') renderList(); if (view === 'stats') renderStats();
+}
+document.querySelectorAll('.nav-btn').forEach(btn => btn.addEventListener('click', () => switchView(btn.dataset.view)));
+
+renderFilterBar(); renderMarkers(); renderTopStats(); updateRoute(); renderNeighborhoods();
+if (state.leads.length === 0) showInfo('Welcome — tap "📍 Neighborhoods" up top to bulk-load 5K–20K names for any area.');
+</script>
+</body>
+</html>
